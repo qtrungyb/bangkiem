@@ -337,7 +337,7 @@
       width: 15%;
     }
 
-    .situation-input, .content-input, .diem-input {
+    .situation-input, .content-input, .diem-input, .subcontent-input {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -350,7 +350,7 @@
       color: var(--text);
     }
 
-    .situation-input:focus, .content-input:focus, .diem-input:focus {
+    .situation-input:focus, .content-input:focus, .diem-input:focus, .subcontent-input:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
       transform: translateY(-1px);
@@ -369,7 +369,7 @@
       border-radius: 6px;
     }
 
-    .content-input {
+    .content-input, .subcontent-input {
       resize: vertical;
       min-height: 42px;
       line-height: 1.5;
@@ -644,6 +644,15 @@
       opacity: 1;
     }
 
+    .subcontent-label {
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
     @media (max-width: 768px) {
       .header {
         flex-direction: column;
@@ -749,9 +758,9 @@
 </div>
 
 <script>
-  const STORAGE_KEY = 'bangKiemData_v6';
+  const STORAGE_KEY = 'bangKiemData_v7';
   const THEME_STORAGE_KEY = 'bangKiemTheme';
-  let state = loadState() || [{ id: uid(), title: 'Tình huống 1', items: [ blankItem() ] }];
+  let state = loadState() || [{ id: uid(), title: 'Tình huống 1', subContent: '', items: [ blankItem() ] }];
   
   function blankItem() {
     return { id: uid(), content: '', diemChuan: 0.5, diemDat: '' };
@@ -864,6 +873,23 @@
           tdSituation.appendChild(situationLabel);
           tdSituation.appendChild(input);
           
+          // Thêm phần nhập nội dung phụ
+          const subContentLabel = document.createElement('span');
+          subContentLabel.className = 'subcontent-label';
+          subContentLabel.textContent = 'Nội dung phụ:';
+          tdSituation.appendChild(subContentLabel);
+          
+          const subContentInput = document.createElement('textarea');
+          subContentInput.className = 'subcontent-input';
+          subContentInput.placeholder = 'Nhập nội dung phụ của tình huống...';
+          subContentInput.value = situ.subContent || '';
+          subContentInput.addEventListener('input', e => {
+            situ.subContent = e.target.value;
+            saveState();
+          });
+          
+          tdSituation.appendChild(subContentInput);
+          
           const actions = document.createElement('div');
           actions.className = 'situation-actions';
           
@@ -891,7 +917,7 @@
             if (confirm('Bạn có chắc chắn muốn xóa tình huống này?')) {
               state.splice(si, 1);
               if (state.length === 0) {
-                state.push({ id: uid(), title: 'Tình huống 1', items: [blankItem()] });
+                state.push({ id: uid(), title: 'Tình huống 1', subContent: '', items: [blankItem()] });
               }
               saveState();
               render();
@@ -1018,7 +1044,7 @@
     `;
   }
   
-  // ---------- Excel Export ----------
+  // ---------- Excel Export (Updated for multiple sheets) ----------
   async function exportToExcel() {
     try {
       const workbook = new ExcelJS.Workbook();
@@ -1027,70 +1053,97 @@
       workbook.created = new Date();
       workbook.modified = new Date();
       
-      // Tạo sheet chính với tất cả dữ liệu
-      const sheet = workbook.addWorksheet('BẢNG KIỂM TRA ĐÁNH GIÁ', {
-        pageSetup: {
-          paperSize: 9, // A4
-          orientation: 'landscape', // Xoay ngang để chứa nhiều cột hơn
-          margins: {
-            left: cmToIn(1.5), right: cmToIn(1.0),
-            top: cmToIn(1.5), bottom: cmToIn(1.5),
-            header: cmToIn(0.5), footer: cmToIn(0.5)
-          }
-        }
-      });
-      
-      // Tiêu đề sheet
-      const titleRow = sheet.addRow(['BẢNG KIỂM TRA ĐÁNH GIÁ']);
-      titleRow.font = { name: 'Times New Roman', size: 16, bold: true };
-      titleRow.alignment = { horizontal: 'center', vertical: 'middle' };
-      sheet.mergeCells(`A1:E1`);
-      
-      // Header với cột Tình huống và STT
-      const headers = ['TÌNH HUỐNG', 'STT', 'NỘI DUNG KIỂM TRA', 'ĐIỂM CHUẨN', 'ĐIỂM ĐẠT'];
-      const headerRow = sheet.addRow(headers);
-      headerRow.font = { name: 'Times New Roman', size: 12, bold: true };
-      headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      headerRow.eachCell(cell => {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FF2563EB' }
-        };
-        cell.border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
-        };
-        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-      });
-      
-      // Dữ liệu với cột Tình huống và STT
-      let totalChuan = 0;
-      let totalDat = 0;
-      let rowIndex = 2; // Bắt đầu từ hàng thứ 3 (sau tiêu đề và header)
-      
+      // Tạo một sheet cho mỗi tình huống
       state.forEach((situ, si) => {
-        const startRow = rowIndex + 1;
+        // Tạo sheet mới với tên tình huống (cắt ngắn nếu cần để phù hợp với Excel)
+        let sheetName = situ.title || `Tình huống ${si + 1}`;
+        // Excel chỉ cho phép tên sheet tối đa 31 ký tự
+        if (sheetName.length > 31) {
+          sheetName = sheetName.substring(0, 28) + '...';
+        }
+        // Thay thế các ký tự không hợp lệ trong tên sheet
+        sheetName = sheetName.replace(/[\\/*[\]:?]/g, ' ');
+        
+        const sheet = workbook.addWorksheet(sheetName, {
+          pageSetup: {
+            paperSize: 9, // A4
+            orientation: 'landscape', // Xoay ngang để chứa nhiều cột hơn
+            margins: {
+              left: cmToIn(1.5), right: cmToIn(1.0),
+              top: cmToIn(1.5), bottom: cmToIn(1.5),
+              header: cmToIn(0.5), footer: cmToIn(0.5)
+            }
+          }
+        });
+        
+        // Tiêu đề sheet
+        const titleRow = sheet.addRow([situ.title || `Tình huống ${si + 1}`]);
+        titleRow.font = { name: 'Times New Roman', size: 16, bold: true };
+        titleRow.alignment = { horizontal: 'center', vertical: 'middle' };
+        sheet.mergeCells(`A1:E1`);
+        
+        // Thêm nội dung phụ nếu có (bỏ chữ "Nội dung phụ:")
+        if (situ.subContent && situ.subContent.trim() !== '') {
+          const subContentRow = sheet.addRow([situ.subContent]);
+          subContentRow.font = { name: 'Times New Roman', size: 12 };
+          subContentRow.alignment = { wrapText: true, vertical: 'top' };
+          sheet.mergeCells(`A2:E2`);
+          
+          // Tự động điều chỉnh chiều cao hàng cho nội dung phụ
+          const lineCount = calculateLineCount(situ.subContent, 100);
+          subContentRow.height = Math.max(15, lineCount * 15);
+        }
+        
+        // Header (bỏ cột ghi chú)
+        const headers = ['STT', 'NỘI DUNG KIỂM TRA', 'ĐIỂM CHUẨN', 'ĐIỂM ĐẠT', 'GHI CHÚ'];
+        const headerRowIndex = situ.subContent && situ.subContent.trim() !== '' ? 3 : 2;
+        const headerRow = sheet.addRow(headers);
+        headerRow.font = { name: 'Times New Roman', size: 12, bold: true };
+        headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        headerRow.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF2563EB' }
+          };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+        });
+        
+        // Dữ liệu
+        let totalChuan = 0;
+        let totalDat = 0;
         
         situ.items.forEach((item, ii) => {
           const rowData = [
-            ii === 0 ? (situ.title || `Tình huống ${si + 1}`) : '', // Tình huống chỉ hiển thị cho dòng đầu tiên
             ii + 1, // STT của nội dung
             item.content || '',
             item.diemChuan ?? 0.5,
-            item.diemDat ?? ''
+            item.diemDat ?? '',
+            '' // Cột ghi chú trống
           ];
           
           const row = sheet.addRow(rowData);
           row.font = { name: 'Times New Roman', size: 12 };
-          row.alignment = { vertical: 'top', wrapText: true };
+          row.alignment = { vertical: 'top' };
           
           // Căn giữa cột STT, điểm chuẩn và điểm đạt
-          row.getCell(2).alignment = { horizontal: 'center', vertical: 'top' };
+          row.getCell(1).alignment = { horizontal: 'center', vertical: 'top' };
+          row.getCell(3).alignment = { horizontal: 'center', vertical: 'top' };
           row.getCell(4).alignment = { horizontal: 'center', vertical: 'top' };
-          row.getCell(5).alignment = { horizontal: 'center', vertical: 'top' };
+          
+          // Thiết lập wrap text và tự động điều chỉnh chiều cao cho cột nội dung
+          const contentCell = row.getCell(2);
+          contentCell.alignment = { wrapText: true, vertical: 'top' };
+          
+          // Tính toán số dòng và thiết lập chiều cao hàng
+          const lineCount = calculateLineCount(item.content, 70);
+          row.height = Math.max(15, lineCount * 15);
           
           // Tính tổng điểm
           totalChuan += Number(item.diemChuan) || 0;
@@ -1105,40 +1158,144 @@
               right: { style: 'thin' }
             };
           });
-          
-          rowIndex++;
         });
         
-        const endRow = rowIndex;
+        // Tổng điểm
+        const totalRow = sheet.addRow(['', 'TỔNG ĐIỂM', totalChuan, totalDat, '']);
+        totalRow.font = { name: 'Times New Roman', size: 12, bold: true };
+        totalRow.getCell(2).alignment = { horizontal: 'right' };
+        totalRow.getCell(3).alignment = { horizontal: 'center' };
+        totalRow.getCell(4).alignment = { horizontal: 'center' };
         
-        // Merge các ô tình huống nếu có nhiều hơn 1 nội dung
-        if (situ.items.length > 1) {
-          sheet.mergeCells(`A${startRow}:A${endRow}`);
-          // Căn giữa và căn giữa theo chiều dọc cho ô đã merge
-          sheet.getCell(`A${startRow}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-        } else if (situ.items.length === 1) {
-          // Căn giữa cho tình huống có 1 nội dung
-          sheet.getCell(`A${startRow}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-        }
+        // Định dạng border cho hàng tổng
+        totalRow.eachCell(cell => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+        });
+        
+        // Định dạng cột
+        sheet.getColumn(1).width = 8;   // STT
+        sheet.getColumn(2).width = 60;  // Nội dung
+        sheet.getColumn(3).width = 12;  // Điểm chuẩn
+        sheet.getColumn(4).width = 12;  // Điểm đạt
+        sheet.getColumn(5).width = 20;  // Ghi chú
+        
+        // Định dạng số
+        sheet.getColumn(3).numFmt = '0.0';
+        sheet.getColumn(4).numFmt = '0.0';
       });
       
-      // Tổng điểm
-      const totalRow = sheet.addRow(['', '', 'TỔNG ĐIỂM', totalChuan, totalDat]);
-      totalRow.font = { name: 'Times New Roman', size: 12, bold: true };
-      totalRow.getCell(3).alignment = { horizontal: 'right' };
-      totalRow.getCell(4).alignment = { horizontal: 'center' };
-      totalRow.getCell(5).alignment = { horizontal: 'center' };
-      
-      // Định dạng cột
-      sheet.getColumn(1).width = 30;  // Tình huống
-      sheet.getColumn(2).width = 8;   // STT
-      sheet.getColumn(3).width = 60;  // Nội dung
-      sheet.getColumn(4).width = 12;  // Điểm chuẩn
-      sheet.getColumn(5).width = 12;  // Điểm đạt
-      
-      // Định dạng số
-      sheet.getColumn(4).numFmt = '0.0';
-      sheet.getColumn(5).numFmt = '0.0';
+      // Thêm một sheet tổng hợp nếu có nhiều hơn một tình huống
+      if (state.length > 1) {
+        const summarySheet = workbook.addWorksheet('TỔNG HỢP', {
+          pageSetup: {
+            paperSize: 9,
+            orientation: 'landscape',
+            margins: {
+              left: cmToIn(1.5), right: cmToIn(1.0),
+              top: cmToIn(1.5), bottom: cmToIn(1.5),
+              header: cmToIn(0.5), footer: cmToIn(0.5)
+            }
+          }
+        });
+        
+        // Tiêu đề sheet tổng hợp
+        const titleRow = summarySheet.addRow(['BẢNG TỔNG HỢP KẾT QUẢ']);
+        titleRow.font = { name: 'Times New Roman', size: 16, bold: true };
+        titleRow.alignment = { horizontal: 'center', vertical: 'middle' };
+        summarySheet.mergeCells(`A1:C1`);
+        
+        // Header tổng hợp
+        const headers = ['TÌNH HUỐNG', 'TỔNG ĐIỂM CHUẨN', 'TỔNG ĐIỂM ĐẠT'];
+        const headerRow = summarySheet.addRow(headers);
+        headerRow.font = { name: 'Times New Roman', size: 12, bold: true };
+        headerRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        headerRow.eachCell(cell => {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF2563EB' }
+          };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+        });
+        
+        // Dữ liệu tổng hợp
+        let grandTotalChuan = 0;
+        let grandTotalDat = 0;
+        
+        state.forEach((situ, si) => {
+          let totalChuan = 0;
+          let totalDat = 0;
+          
+          situ.items.forEach(item => {
+            totalChuan += Number(item.diemChuan) || 0;
+            totalDat += Number(item.diemDat) || 0;
+          });
+          
+          grandTotalChuan += totalChuan;
+          grandTotalDat += totalDat;
+          
+          const rowData = [
+            situ.title || `Tình huống ${si + 1}`,
+            totalChuan,
+            totalDat
+          ];
+          
+          const row = summarySheet.addRow(rowData);
+          row.font = { name: 'Times New Roman', size: 12 };
+          row.alignment = { vertical: 'middle' };
+          
+          // Căn giữa các cột số
+          row.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+          row.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+          
+          // Định dạng border
+          row.eachCell(cell => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
+        });
+        
+        // Tổng cộng
+        const totalRow = summarySheet.addRow([
+          'TỔNG CỘNG',
+          grandTotalChuan,
+          grandTotalDat
+        ]);
+        totalRow.font = { name: 'Times New Roman', size: 12, bold: true };
+        totalRow.eachCell(cell => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+        
+        // Định dạng cột
+        summarySheet.getColumn(1).width = 40;  // Tình huống
+        summarySheet.getColumn(2).width = 15;  // Tổng điểm chuẩn
+        summarySheet.getColumn(3).width = 15;  // Tổng điểm đạt
+        
+        // Định dạng số
+        summarySheet.getColumn(2).numFmt = '0.0';
+        summarySheet.getColumn(3).numFmt = '0.0';
+      }
       
       const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer], {
@@ -1150,6 +1307,24 @@
       console.error('Lỗi khi xuất Excel:', error);
       showToast('Có lỗi xảy ra khi xuất file Excel. Vui lòng thử lại.', true);
     }
+  }
+  
+  // Hàm tính toán số dòng dựa trên độ dài văn bản và số ký tự mỗi dòng
+  function calculateLineCount(text, charsPerLine) {
+    if (!text || text.trim() === '') return 1;
+    
+    const lines = text.split('\n');
+    let totalLines = 0;
+    
+    for (let line of lines) {
+      if (line.length === 0) {
+        totalLines += 1;
+      } else {
+        totalLines += Math.ceil(line.length / charsPerLine);
+      }
+    }
+    
+    return totalLines;
   }
   
   function cmToIn(cm) {
@@ -1194,14 +1369,14 @@
   // ---------- Helper Functions ----------
   function addNewSituation() {
     const idx = state.length + 1;
-    state.push({ id: uid(), title: `Tình huống ${idx}`, items: [blankItem()] });
+    state.push({ id: uid(), title: `Tình huống ${idx}`, subContent: '', items: [blankItem()] });
     saveState();
     render();
   }
   
   function resetAllData() {
     if (confirm('Bạn có chắc chắn muốn xóa tất cả dữ liệu? Hành động này không thể hoàn tác.')) {
-      state = [{ id: uid(), title: 'Tình huống 1', items: [blankItem()] }];
+      state = [{ id: uid(), title: 'Tình huống 1', subContent: '', items: [blankItem()] }];
       saveState();
       render();
       showToast('Đã xóa tất cả dữ liệu và thiết lập lại');
